@@ -31,7 +31,7 @@ class Processor {
     await accountModel.insertMany(this.accounts)
     await orderModel.deleteMany();
     await orderModel.insertMany(this.orders);
-    await orderModel.updateMany({$set:{'delivery.status':'create'}});
+    await orderModel.updateMany({$set:{'delivery.status':'confirmed'}});
 
     console.log('init data success');
 
@@ -276,49 +276,100 @@ class Processor {
   async start(){
 
     const orders = await orderModel.find();
-
-    const accounts = await accountModel.find();
       
-    const startIndex = 0;
+    const length = orders.length;
 
-    //准备从orders中一个一个取，查看后一个的create的时间。不在循环里面做。
-    const createdAt = _.get(orders[startIndex],'delivery.createdAt');
+    let i = 0;
 
-    const nextCreatedAt = _.get(orders[startIndex+1],'delivery.createdAt');
+    while(i<=length){
 
-    const result = await runTron(createdAt);
+      const order = orders[i];
 
-    const estimatedTime = 0;
+      const createdAt = _.get(order,'createdAt');
 
-    // run tron then update dirver status
-    await updateTron(result);
+      //run tron
+      const tronResult = this.runTron(createdAt);
 
-    await accountOnline(accounts,createdAt,estimatedTime);
+      //after run tron update data
+      await updateTron(tronResult);
 
-    
+      const estimatedTime = _.get(tronResult,'estimatedTime');
 
-    if(firstTap.flag){
-      await runTron(firstTap.time);
+      //between estimated time and this order create time
+      //account login , run tron & create stop
+      const loginArray = await this.accountOnline(createdAt,estimatedTime);
+
+      const ordersArray = await this.betweenOrders(createdAt,estimatedTime);
+
+      const statusArray = await this.accountStatus();
+
+      if(loginArray.length>0&&ordersArray.length>0&&statusArray.length>0){
+
+        _.forEach(loginArray,(accountItem)=>{
+
+        })
+      }else if(loginArray.length>0&&ordersArray.length===0&&statusArray.length>0){
+
+      }else if(loginArray.length>0&&ordersArray.length===0&&statusArray.length===0){
+
+      }else if(loginArray.length>0&&ordersArray.length>0&&statusArray.length===0){
+
+      }else if(loginArray.length===0&&ordersArray.length>0&&statusArray.length>0){
+
+      }else if(loginArray.length===0&&ordersArray.length===0&&statusArray.length>0){
+
+      }else if(loginArray.length===0&&ordersArray.length>0&&statusArray.length===0){
+
+      }else if(loginArray.length===0&&ordersArray.length===0&&statusArray.length===0){
+        i++;
+      }
+
+       
     }
+    
         
-   
   }
 
+  compareTime(start,end,time){
 
-  async accountOnline(accounts,createdAt,estimatedTime){
+  }
 
-    let flag = false;
+  async accountOnline(createdAt,estimatedTime){
+
+    const accounts = await accountModel.find();
+
+    let accountArray = [];
     let time;
     _.forEach(accounts,(account)=>{
 
-        if(createdAt<account.time<estimatedTime){
-          flag = true;
-          time = account.time;
-          return false;
+      _.forEach(_.get(account,'shifts'),(shift)=>{
+
+        if(this.compareTime(createdAt,estimatedTime,_.get(shift,'start'))){
+          //if account login 
+          accountArray.push(account);
+  
         }
+      })
+        
     })
 
-    return {flag,time};
+    return _.sortBy(accounts,'');
+
+  }
+
+  async betweenOrders(createdAt,estimatedTime){
+
+    return await orderModel.find({createdAt:{"gt":createdAt,"lt":estimatedTime}}).sort({'createdAt':1});
+
+  }
+
+
+  async accountStatus(start,end){
+
+    return await accountModel.find({$and:[
+      {'stops.next.status':/at-pickup|pickup-complete|at-dropoff|delivered/},
+      {createdAt:{"gt":start,"lt":end}}
+    ]});
 
   }
 

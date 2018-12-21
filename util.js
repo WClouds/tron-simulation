@@ -78,7 +78,24 @@ function handleDropoffPenaltyOutput(output, subTime) {
   return output;
 }
 
+/**
+ * Applies a flat/factor fee to an amount.
+ * Rounds the result to the nearest integer.
+ */
+function fee({ value, f }) {
+
+  /* Do nothing if f is not there */
+  if (!f) { return 0; }
+
+  /* save defaults value */
+  const { flat, factor } = _.defaults(f, { flat: 0, factor: 0 });
+
+  return Math.round(flat + (factor * value));
+}
+
+
 module.exports = {
   handleDropoffPenaltyInput,
-  handleDropoffPenaltyOutput
+  handleDropoffPenaltyOutput,
+  fee
 }

@@ -6,6 +6,7 @@ const { accountModel, orderModel,regionModel } = require('./connection');
 const tronClient = require('./tronClient');
 
 const { canon } = require('./utils/uid');
+const { fee } = require('./util');
 
 const computeDistribution = require('./utils/compute-distribution');
 const SortStops    = require('./utils/sort-stops');
@@ -16,6 +17,8 @@ const { accountFind,accountUpdate,accountList } = require('./data/account');
 const { orderFind, orderUpdate,orderList } = require('./data/order');
 const { regionFind } = require('./data/region');
 const { shiftList } = require('./data/shift');
+const { restaurantFind } = require('./data/restaurant');
+const { eventCreate } = require('./data/event');
 
 
 async function updateTron(route){
@@ -265,18 +268,17 @@ async function updateStop({id,body}){
   };
 
   /* Create event */
-//   await this.actAsync(
-//     'ns:event,cmd:create',
-//     {
-//       data,
-//       name:  status === 'completed' ? 'order.delivered' : `order.delivery.${status}`,
-//       scope: {
-//         order:      next.order._id,
-//         account:    id,
-//         restaurant: _.get(next, 'order.restaurant._id')
-//       }
-//     }
-//   );
+  await eventCreate(
+    {
+      data,
+      name:  status === 'completed' ? 'order.delivered' : `order.delivery.${status}`,
+      scope: {
+        order:      next.order._id,
+        account:    id,
+        restaurant: _.get(next, 'order.restaurant._id')
+      }
+    }
+  );
 
   /* Notify customer if driver has arrived at dropoff location */
 //   if (status === 'at-dropoff') {
@@ -325,11 +327,136 @@ async function updateStop({id,body}){
   return updated.stops;
 }
 
+async function createStop({id}){
+
+  /**
+   * Find the account in question
+   */
+  const account = await accountFind({ id });
+
+  /* Account is needed */
+  if (!account) {
+    throw new Error('no account !');
+  }
+
+
+  /* Get the current destination, and route */
+  const stops = _.get(account, 'stops');
+
+
+  /* If driver has existing en-route order, throw error */
+  if (stops.next) {
+    throw new Error('Please finish current order before getting new one');
+  }
+
+
+  /* Pop the next stop from route to be the new next */
+  stops.next = (stops.route || []).shift();
+
+
+  /* If no order in the queue, throw error */
+  if (!stops.next) {
+    throw new Error('No more order to deliver');
+  }
+
+  /* Get Order and restaurant */
+  const order = await orderFind({ id: _.get(stops, 'next.order._id') }
+  );
+  const restaurant = await restaurantFind({ id: order.restaurant._id });
+
+  /* Fail if someone else is already assigned to the order */
+  const oldDriver = _.get(order, 'delivery.courier._id');
+
+  if (
+    stops.next.type === 'pickup' &&
+    oldDriver &&
+    oldDriver.toString() !== id.toString()
+  ) {
+
+    /* Run tron to refresh the route for this case */
+    await createRoute({ region: order.region._id });
+
+    throw new Error('Someone else took this order, Tron is looking for new orders, please wait.');
+  }
+
+  /* Calculate Driver Commission */
+  let commission =  fee({
+    value: order.fees.delivery,
+    f:     account.commission
+  });
+
+  /* Add restaurant bonus if any */
+  if (restaurant.bonus) {
+    commission += await fee({
+      value: order.fees.delivery,
+      f:     restaurant.bonus
+    });
+  }
+
+  /* Get courier information from account */
+  const courier = _.pick(account, '_id', 'email', 'phone', 'name', 'image');
+
+  /**
+   * Update the status of the new order
+   * Assign driver to the order
+   * Calculate driver commission
+   */
+  await orderUpdate(
+    {
+      id:   stops.next.order._id,
+      data: {
+        $set: {
+          'delivery.status':   `en-route-to-${stops.next.type}`,
+          'delivery.courier':  courier,
+          'commission.driver': commission
+        }
+      }
+    }
+  );
+
+
+  /* And Create event for the new order */
+  await eventCreate( {
+    data: {
+      courier,
+      stop:     stops.next,
+      estimate: stops.next.finishAt
+    },
+    name:  `order.delivery.en-route-to-${stops.next.type}`,
+    scope: {
+      order:   stops.next.order._id,
+      account: id
+    }
+  });
+
+  /* set alert to be 0, and update startAt */
+  stops.alert = 0;
+  stops.startAt = stops.next.finishAt;
+
+  /* Save new stops to driver */
+  const updated = await accountUpdate({
+    id,
+    data: { $set: { stops } }
+  });
+
+  /* Update the last stops update time for region */
+  const role = _.find(account.roles, { name: 'region.driver' });
+
+  /* update tron updated  */
+  if (role) {
+    await this.redis.set(`stops:${role.scope}`, Date.now());
+
+    /* this.actAsync('ns:tron,role:route,cmd:create', { region: role.scope }); */
+  }
+
+  return updated.stops;
+}
 
 
 module.exports={
     updateTron,
-    updateStop
+    updateStop,
+    createStop
 }
 
 

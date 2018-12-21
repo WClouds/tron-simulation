@@ -47,12 +47,22 @@ const options = {
 
   const shiftModel = localMongoConn.model('shifts',new Schema({
 
-}));
+  }));
+
+  const restaurantModel = localMongoConn.model('restaurants',new Schema({
+
+  }));
+
+  const eventModel = localMongoConn.model('events',new Schema({
+
+  }));
 
 
   module.exports={
     accountModel,
     orderModel,
     regionModel,
-    shiftModel
+    shiftModel,
+    restaurantModel,
+    eventModel
   }
