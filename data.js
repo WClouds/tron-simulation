@@ -6,7 +6,8 @@ const Schema = mongoose.Schema;
 const url = process.env.MONGO_URI;
 
 const options = {
-  dbName: 'live'
+  dbName: 'live',
+  useNewUrlParser: true
 }
 
 mongoose.connect(url, options);
@@ -130,7 +131,6 @@ async function init() {
 
   /* Add shifts in accounts */
   accounts = _.map(accounts, account => {
-    console.log(account);
     const accountId = account._id;
     const shifts = groupIdJobs[accountId.toString()]
     account.shifts = shifts

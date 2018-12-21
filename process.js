@@ -2,47 +2,15 @@ const mongoose = require('mongoose');
 const _ = require('lodash')
 const Moment = require('moment-timezone');
 const data = require('./data');
+const redis = require('./redis');
 const { handleDropoffPenaltyInput, handleDropoffPenaltyOutput } = require('./util')
+const { accountModel, orderModel } = require('./connection');
+const tronClient = require('./tronClient');
+const { updateTron,updateStop } = require('./update');
 
-const Schema = mongoose.Schema;
 const TRON_HOSTNAME = 'http://localhost:5000'
 
-const options = {
-  dbName: 'test'
-}
-const url = 'mongodb://localhost:27017';
 
-const localMongoConn = mongoose.createConnection(url, options);
-
-const accountModel = localMongoConn.model('accounts', new Schema({
-  _id: Schema.Types.Mixed,
-  email: String,
-  type: String,
-  phone: String,
-  roles: Array,
-  commission: Object,
-  limit: Object,
-  location: Object,
-  onCall: Boolean,
-  stops: Object,
-  shifts: Array
-}));
-
-const orderModel = localMongoConn.model('orders', new Schema({
-  _id: String,
-  comments: String,
-  passcode: String,
-  region: Object,
-  customer: Object,
-  restaurant: Object,
-  delivery: Object,
-  items: Object,
-  destination: Object,
-  status: String,
-  createdAt: Date,
-  updatedAt: Date,
-  driver: Object
-}));
 
 class Processor {
   constructor() {
@@ -57,8 +25,17 @@ class Processor {
     this.accounts = accounts;
     this.orders = orders;
     this.tronOptions = _.get(region, 'tron.options')
+    
 
-    // await accountModel.insertMany(this.accounts)
+    await accountModel.deleteMany();
+    await accountModel.insertMany(this.accounts)
+    await orderModel.deleteMany();
+    await orderModel.insertMany(this.orders);
+    await orderModel.updateMany({$set:{'delivery.status':'create'}});
+
+    console.log('init data success');
+
+
   }
 
   async constructFleet(time) {
@@ -158,7 +135,7 @@ class Processor {
 
     };
 
-    const orders = orderModel.find(query);
+    const orders = await orderModel.find(query);
 
     /* Convert to visists */
     const visits = _.reduce(orders, (v, o) => {
@@ -271,21 +248,6 @@ class Processor {
 
   }
 
-  async tronClient({fleet, visits, options}) {
-    const opts = {
-      uri:    TRON_HOSTNAME,
-      body:   {
-        visits,
-        fleet,
-        options
-      },
-      json:   true // Automatically stringifies the body to JSON
-    };
-
-    /* Call tron server to get route solution */
-    const res = await rp.post(opts);
-    return res;
-  }
 
   async runTron(time) {
     const fleet = await this.constructFleet(time);
@@ -311,12 +273,62 @@ class Processor {
     return handleDropoffPenaltyOutput(res.output)
   }
 
+  async start(){
+
+    const orders = await orderModel.find();
+
+    const accounts = await accountModel.find();
+      
+    const startIndex = 0;
+
+    //准备从orders中一个一个取，查看后一个的create的时间。不在循环里面做。
+    const createdAt = _.get(orders[startIndex],'delivery.createdAt');
+
+    const nextCreatedAt = _.get(orders[startIndex+1],'delivery.createdAt');
+
+    const result = await runTron(createdAt);
+
+    const estimatedTime = 0;
+
+    // run tron then update dirver status
+    await updateTron(result);
+
+    await accountOnline(accounts,createdAt,estimatedTime);
+
+    
+
+    if(firstTap.flag){
+      await runTron(firstTap.time);
+    }
+        
+   
+  }
+
+
+  async accountOnline(accounts,createdAt,estimatedTime){
+
+    let flag = false;
+    let time;
+    _.forEach(accounts,(account)=>{
+
+        if(createdAt<account.time<estimatedTime){
+          flag = true;
+          time = account.time;
+          return false;
+        }
+    })
+
+    return {flag,time};
+
+  }
+
 }
 
 processor = new Processor()
 
 processor.init()
-  .then(() => {
+  .then((data) => {
+    
     mongoose.disconnect()
   })
   .catch(err => {
