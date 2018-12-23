@@ -54,6 +54,17 @@ const options = {
   }));
 
   const eventModel = localMongoConn.model('events',new Schema({
+    _id:Schema.Types.Mixed,
+    req: Object,
+    ip: String,
+    region: Object,
+    name: String,
+    data: Object,
+    scope:Object,
+    origin:String,
+    user:Object,
+    createdAt: Date,
+    expiresAt: Date,
 
   }));
 

@@ -6,10 +6,12 @@ const redis = require('./redis');
 const { handleDropoffPenaltyInput, handleDropoffPenaltyOutput } = require('./util')
 const { accountModel, orderModel } = require('./connection');
 const tronClient = require('./tronClient');
-const { updateTron,updateStop } = require('./update');
+const { updateTron,updateStop,createStop } = require('./update');
 
-const TRON_HOSTNAME = 'http://localhost:5000'
-
+process.on('unhandledRejection', (reason, p) => {
+  console.log('Unhandled Rejection at:', p, 'reason:', reason);
+  // Application specific logging, throwing an error, or other logic here
+});
 
 
 class Processor {
@@ -22,30 +24,37 @@ class Processor {
       orders,
       region
     } = await data.init();
+
     this.accounts = accounts;
     this.orders = orders;
-    this.tronOptions = _.get(region, 'tron.options')
+    this.tronOptions = _.get(region, 'tron.options');
+    this.statusArr = ['en-route-to-pickup','at-pickup','pickup-completed','en-route-to-dropoff','at-dropoff','completed'];
+    this.type;
+    this.accountId;
+    this.driverArr = await this.dirverStartOrEnd();
+    this.tronResult;
     
 
     await accountModel.deleteMany();
     await accountModel.insertMany(this.accounts)
-    await orderModel.deleteMany();
-    await orderModel.insertMany(this.orders);
-    await orderModel.updateMany({$set:{'delivery.status':'confirmed'}});
+
 
     console.log('init data success');
-
 
   }
 
   async constructFleet(time) {
+
     let drivers = await accountModel.find();
+    
     drivers = _.filter(drivers, driver => {
 
       /* onCall filter */
       let onCall = false;
       _.forEach(driver.shifts, shift => {
-        if (time >= Moment(shift.start).unix() && time <= Moment(shift.end).unix()) {
+
+
+        if (Moment(time).unix() >= Moment(shift.start).unix() && Moment(time).unix() < Moment(shift.end).unix()) {
           onCall = true;
           driver.onCall = true;
         }
@@ -115,7 +124,7 @@ class Processor {
   }
 
   async constructVisits(time) {
-    query = {
+    const query = {
 
       /* Delivery must exists */
       'delivery._id': {
@@ -268,118 +277,327 @@ class Processor {
       }
     };
 
-    const {input, subTime} = handleDropoffPenaltyInput({ fleet, visits, options })
+    const {input, subTime} = handleDropoffPenaltyInput({ fleet, visits, options, time })
+  
     const res = await tronClient(input)
-    return handleDropoffPenaltyOutput(res.output)
+    return handleDropoffPenaltyOutput(res.output, subTime)
   }
 
   async start(){
 
-    const orders = await orderModel.find();
+    await orderModel.deleteMany();
+
+    await this.firstRun(this.orders[0]);
+
+    let deliveringOrderLength = (await this.queryDeliveringOrders()).length
+
+    let runTron = this.orders.length > 0 || deliveringOrderLength > 0
+
+    while(runTron){
+
+        await this.run();
+        deliveringOrderLength = (await this.queryDeliveringOrders()).length;
+
+        console.log('run done once');
       
-    const length = orders.length;
+    }
 
-    let i = 0;
+    
+    console.log('done');
+  }
 
-    while(i<=length){
+  async queryDeliveringOrders(){
 
-      const order = orders[i];
+    const query = {
 
-      const createdAt = _.get(order,'createdAt');
+      /* Delivery must exists */
+      'delivery._id': {
+        $ne: null
+      },
 
-      //run tron
-      const tronResult = this.runTron(createdAt);
+      /* Must not be delivered or failed */
+      'delivery.status': {
+        $nin: ['completed', 'failed']
+      },
 
-      //after run tron update data
-      await updateTron(tronResult);
+      /* Must not be delivered */
+      'delivery.time': null,
 
-      const estimatedTime = _.get(tronResult,'estimatedTime');
+      /* Must be confirmed */
+      status: 'confirmed',
 
-      //between estimated time and this order create time
-      //account login , run tron & create stop
-      const loginArray = await this.accountOnline(createdAt,estimatedTime);
+    };
 
-      const ordersArray = await this.betweenOrders(createdAt,estimatedTime);
+    return await orderModel.find(query).lean();
 
-      const statusArray = await this.accountStatus();
+  }
 
-      if(loginArray.length>0&&ordersArray.length>0&&statusArray.length>0){
+  async insertOrder(order) {
 
-        _.forEach(loginArray,(accountItem)=>{
+    order.delivery.courier = null;
+    order.delivery.status = null;
+    order.delivery.createdAt = null;
+    order.delivery.quote = null;
+    order.delivery.time = null;
+    order.status = 'confirmed';
 
-        })
-      }else if(loginArray.length>0&&ordersArray.length===0&&statusArray.length>0){
+    await orderModel.create(order);
+    this.orders.shift()
+  }
 
-      }else if(loginArray.length>0&&ordersArray.length===0&&statusArray.length===0){
 
-      }else if(loginArray.length>0&&ordersArray.length>0&&statusArray.length===0){
+  async firstRun(order){
 
-      }else if(loginArray.length===0&&ordersArray.length>0&&statusArray.length>0){
+    const createdAt = _.get(order,'createdAt');
 
-      }else if(loginArray.length===0&&ordersArray.length===0&&statusArray.length>0){
 
-      }else if(loginArray.length===0&&ordersArray.length>0&&statusArray.length===0){
+    await this.insertOrder(order);
 
-      }else if(loginArray.length===0&&ordersArray.length===0&&statusArray.length===0){
-        i++;
+    const tronResult = await this.runTron(createdAt);
+
+    this.tronResult = tronResult;
+
+    // 排过序最早的est时间
+    /*
+    [
+      {
+        type: 'pickup arrived...',
+        time: arrival/finish
       }
+    ]
+    */
+   await updateTron(_.cloneDeep(tronResult));
 
-       
+   await this.dealTronResult(_.cloneDeep(tronResult));
+
+   await this.updateAllStops();
+  
+    
+  }
+
+  async run(){
+
+    const arr = _.cloneDeep(this.driverArr);
+
+    const { type, time , accountId } = await this.dealTronResult(_.cloneDeep(this.tronResult));
+    
+    if(this.orders.length > 0){
+
+      const nextOrder = this.orders[0];
+
+      const nextCreatedAt = _.get(nextOrder,'createdAt');
+
+      arr.push({point:nextCreatedAt,type:'nextOrder'});
     }
     
-        
-  }
+    arr.push({point:time,type:'estimatedTime'});
 
-  compareTime(start,end,time){
+    const afterSort = _.sortBy(arr,'point');    
 
-  }
+    const item = _.head(afterSort);
 
-  async accountOnline(createdAt,estimatedTime){
+    const itemType = _.get(item,'type');
 
-    const accounts = await accountModel.find();
+    let tronResult ;
+    // dirver start or end
+    if(itemType === 'staff'){
 
-    let accountArray = [];
-    let time;
-    _.forEach(accounts,(account)=>{
+      tronResult = await this.runTron(_.get(item,'point'));
 
-      _.forEach(_.get(account,'shifts'),(shift)=>{
+      await updateTron(_.cloneDeep(tronResult));
 
-        if(this.compareTime(createdAt,estimatedTime,_.get(shift,'start'))){
-          //if account login 
-          accountArray.push(account);
+      await this.updateAllStops();
+
+      this.tronResult = tronResult;
+
+    
+      this.driverArr.shift();
+
+    }else if(itemType === 'estimatedTime'){
+
+      console.log('estimatedTime');
+      // pickup arrived
+      // pickup completed
+      // dropoff arrived
+      // dropoff completed
+      await updateStop({id: accountId, body:await this.updateStopData(type)});
+
+      tronResult = await this.runTron(_.get(item,'point'));
+
+      this.tronResult = tronResult;
+
+      await updateTron(_.cloneDeep(tronResult));
+
+      await this.updateAllStops();
   
-        }
+    }else if(itemType === 'nextOrder'){
+
+      await this.insertOrder(this.orders[0])
+
+      const createdAt = this.orders[0].createdAt;
+
+      tronResult = await this.runTron(createdAt);
+
+      this.tronResult = tronResult;
+
+      await updateTron(_.cloneDeep(tronResult))
+   
+      await this.updateAllStops();
+
+    }
+
+
+  }
+
+  async updateStopData(type){
+
+    return{
+      status:type,
+      reason:'',
+      description:''
+    }
+  }
+
+  async dealTronResult(tronResult){
+
+    const solution = _.get(tronResult,'solution');
+
+
+    const arr = [];
+
+    _.forEach(solution,(v,k)=>{
+
+      v.shift();
+
+      _.forEach(v,(item)=>{
+
+        arr.push({...item,accountId:k})
       })
-        
+    });
+
+    //sort by arrived time
+    const afterGroupArr = _.groupBy(arr,'location_id');
+
+
+    const atferMap =await Promise.all(_.map(afterGroupArr,async (v,k)=>{
+
+      const itemOrder = await orderModel.findOne({_id:k});
+
+      const nextStatus =await this.dealDeliveryStatus(itemOrder.delivery.status)
+
+      let time;
+      switch (nextStatus) {
+        case 'en-route-to-pickup':
+        case 'at-pickup': {
+          time = (_.filter(v, ['type', 'pickup']))[0].arrival_time;
+          break;
+        }
+        case 'pickup-completed':
+          time = (_.filter(v, ['type', 'pickup']))[0].finish_time;break;
+        case 'en-route-to-dropoff':
+        case 'at-dropoff':
+          time = (_.filter(v, ['type', 'dropoff']))[0].arrival_time;break;
+        case 'completed':
+          time = (_.filter(v, ['type', 'dropoff']))[0].finish_time;break;
+      }
+
+      return {time,orderId:k,nextStatus,accountId:v[0].accountId}      
+    }))
+
+
+    _.sortBy(atferMap,'time');
+
+    const top = _.head(atferMap);
+
+
+    return {
+      accountId:top.accountId,
+      type:top.nextStatus,
+      time:top.time
+    }
+
+    
+  }
+
+  dealDeliveryStatus(status){
+
+  
+    const index = _.indexOf(this.statusArr,status);
+
+
+    return this.statusArr[index+1];
+
+  }
+
+
+  async dirverStartOrEnd(){
+
+    const arr = [];
+
+    // _.forEach(this.accounts,(account)=>{
+
+    //   const shifts = _.get(account,'shifts');
+
+    //   _.forEach(shifts,(shift)=>{
+
+    //     const start = _.get(shift,'start');
+
+    //     const end = _.get(shift,'end');
+      
+    //     if(Moment(start).unix()>=(Moment(time).unix())){
+
+    //       account.point = start;
+    //       arr.push(account);
+    //       return false;
+    //     }else if(Moment(end).unix()>=(Moment(time).unix())){
+
+    //       account.point = end;
+    //       arr.push(account);
+    //       return false;
+    //     }
+    //   })
+    // })
+
+    _.forEach(this.accounts,(account)=>{
+
+      const shifts = _.get(account,'shifts');
+
+      _.forEach(shifts,(shift)=>{
+
+        const start = _.get(shift,'start');
+
+        const end = _.get(shift,'end');
+      
+        arr.push({...account,time:start,flag:'start'});
+        arr.push({...account,time:end,flag:'end'});
+      })
     })
 
-    return _.sortBy(accounts,'');
-
+    return _.sortBy(arr,'time');
   }
 
-  async betweenOrders(createdAt,estimatedTime){
+  async updateAllStops(){
 
-    return await orderModel.find({createdAt:{"gt":createdAt,"lt":estimatedTime}}).sort({'createdAt':1});
 
+    const result = await accountModel.find().lean();
+
+    await Promise.all(_.map(result,async (item)=>{
+
+      if(!item.stops.next&&item.stops.route.length>0){
+
+        await createStop({id:item._id});
+      }
+    }))
   }
-
-
-  async accountStatus(start,end){
-
-    return await accountModel.find({$and:[
-      {'stops.next.status':/at-pickup|pickup-complete|at-dropoff|delivered/},
-      {createdAt:{"gt":start,"lt":end}}
-    ]});
-
-  }
+  
 
 }
 
 processor = new Processor()
 
 processor.init()
-  .then((data) => {
-    
+  .then(async() => {
+    await processor.start();
     mongoose.disconnect()
   })
   .catch(err => {

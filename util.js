@@ -6,13 +6,12 @@ function handleDropoffPenaltyInput(data) {
   const {
     visits,
     fleet,
-    createdAt
+    time: createdAt
   } = data;
 
   const createUnix = moment(createdAt).unix()
   const now = moment().unix();
-  const sub = now - createUnix
-  console.log('sub===>', sub);
+  const subTime = now - createUnix
 
   /* Adjust for stops */
   _.forEach(visits, ({
@@ -22,22 +21,22 @@ function handleDropoffPenaltyInput(data) {
 
     /* Add 7 days to picup start */
     if (pickup.start) {
-      pickup.start += sub;
+      pickup.start += subTime;
     }
 
     /* Add 7 days */
     if (pickup.end) {
-      pickup.end += sub;
+      pickup.end += subTime;
     }
 
     /* Add 7 days */
     if (dropoff.start) {
-      dropoff.start += sub;
+      dropoff.start += subTime;
     }
 
     /* Add 7 days */
     if (dropoff.end) {
-      dropoff.end += sub;
+      dropoff.end += subTime;
     }
   });
 
@@ -46,12 +45,12 @@ function handleDropoffPenaltyInput(data) {
 
     /* Add 7 days to shift */
     if (fl.shift_start) {
-      fl.shift_start += sub;
+      fl.shift_start += subTime;
     }
   });
 
   return {
-    data,
+    input: data,
     subTime
   };
 }

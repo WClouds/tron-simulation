@@ -44,7 +44,7 @@ async function getOrders() {
       }
     }
 
-    return await orderModel.find(query, projection, options)
+    return await orderModel.find(query, projection, options).lean()
   } catch (err) {
     console.log('err==>', err);
     return null
@@ -88,7 +88,7 @@ async function getAccounts(ids) {
       shifts: Object,
       stops: Object
     }));
-    return await accountModel.find({ _id: {$in: ids} })
+    return await accountModel.find({ _id: {$in: ids} }).lean()
   } catch (err) {
     console.log('err===>', err);
     return null;
@@ -102,7 +102,7 @@ async function getRegion() {
       _id: Schema.Types.Mixed,
       tron: Object,
     }));
-    return await regionModel.findById(regionId)
+    return await regionModel.findById(regionId).lean()
   } catch (err) {
     console.log('err===>', err);
     return null;

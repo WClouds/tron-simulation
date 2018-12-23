@@ -22,7 +22,8 @@ const { eventCreate } = require('./data/event');
 
 
 async function updateTron(route){
-    
+
+
   /* Key / Value Format is hard to loop, so change to all value */
   const solution = _.map(route.solution, (stops, driver) => ({ stops, driver }));
 
@@ -93,7 +94,9 @@ async function updateTron(route){
     }
 
     /* Sort the order of pickup with same restaurnat by time */
+
     const sortStops = SortStops.sort(stops);
+
 
     /* Save route to driver */
     account = await accountUpdate({
@@ -125,9 +128,11 @@ async function updateTron(route){
 
 async function updateStop({id,body}){
     
+  console.log('updateStop');
   /**
    * Find the account in question
    */
+
   const account = await accountFind({ id });
 
   /* account is required */
@@ -267,6 +272,7 @@ async function updateStop({id,body}){
     diff
   };
 
+ 
   /* Create event */
   await eventCreate(
     {
@@ -329,6 +335,8 @@ async function updateStop({id,body}){
 
 async function createStop({id}){
 
+  console.log('createStop');
+  
   /**
    * Find the account in question
    */
@@ -380,18 +388,18 @@ async function createStop({id}){
   }
 
   /* Calculate Driver Commission */
-  let commission =  fee({
-    value: order.fees.delivery,
-    f:     account.commission
-  });
+  // let commission =  fee({
+  //   value: order.fees.delivery,
+  //   f:     account.commission
+  // });
 
-  /* Add restaurant bonus if any */
-  if (restaurant.bonus) {
-    commission += await fee({
-      value: order.fees.delivery,
-      f:     restaurant.bonus
-    });
-  }
+  // /* Add restaurant bonus if any */
+  // if (restaurant.bonus) {
+  //   commission += await fee({
+  //     value: order.fees.delivery,
+  //     f:     restaurant.bonus
+  //   });
+  // }
 
   /* Get courier information from account */
   const courier = _.pick(account, '_id', 'email', 'phone', 'name', 'image');
@@ -407,14 +415,13 @@ async function createStop({id}){
       data: {
         $set: {
           'delivery.status':   `en-route-to-${stops.next.type}`,
-          'delivery.courier':  courier,
-          'commission.driver': commission
+          'delivery.courier':  courier
         }
       }
     }
   );
 
-
+  
   /* And Create event for the new order */
   await eventCreate( {
     data: {

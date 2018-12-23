@@ -1,5 +1,8 @@
 
 const { orderModel } = require('../connection');
+const  computeDistribution  = require('../utils/compute-distribution');
+const { canon } = require('../utils/uid');
+const _ = require('lodash');
 
 async function orderFind(args){
 
@@ -8,9 +11,9 @@ async function orderFind(args){
     let proj = {};
 
     if(args.id){
-        query._id = id;
+        query._id = canon(args.id);
 
-        return await orderModel.find(query);
+        return await orderModel.findOne(query);
     }
 
     /* Allow search by restaurant */

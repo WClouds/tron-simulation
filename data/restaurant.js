@@ -1,5 +1,6 @@
-const { restaurantModel } = require('./connection');
+const { restaurantModel } = require('../connection');
 const { canon } = require('../utils/uid');
+
 
 async function restaurantFind(args){
 
@@ -14,7 +15,7 @@ async function restaurantFind(args){
   if (args.id) {
 
     if (!args.fields) {
-      return await restaurantModel.find({_id:args.id});
+      return await restaurantModel.findOne({_id:await canon(args.id)});
     }
 
     query._id = canon(args.id);

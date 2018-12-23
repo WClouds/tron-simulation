@@ -1,12 +1,15 @@
 const { accountModel } = require('../connection');
+const _ = require('lodash');
+const { canon } = require('../utils/uid');
 
 async function accountFind(args){
 
     let query = {};
-    if(args.id){
-        query._id = id;
 
-        return await accountModel.find(query);
+    if(args.id){
+        query._id = await canon(args.id);
+
+        return await accountModel.findOne(query);
     }
 
     if(args.email){
@@ -21,6 +24,11 @@ async function accountUpdate(args){
   const data = args.data || { };
 
 
+  console.log(args);
+
+  const id = canon(args.id);
+
+  console.log(id);
   /**
    * Push APN
    */
@@ -37,7 +45,8 @@ async function accountUpdate(args){
    */
   _.set(data, '$set.updatedAt', new Date());
 
-  return accountModel.updateOne({_id:args.id}, data);
+  return await accountModel.updateOne({_id:id}, {$set: {'stops.route': [123]}});
+
 }
 
 async function accountList({query = { },target,targets,sort,skip,limit,fields}){
