@@ -23,12 +23,8 @@ async function accountFind(args){
 async function accountUpdate(args){
   const data = args.data || { };
 
-
-  console.log(args);
-
   const id = canon(args.id);
 
-  console.log(id);
   /**
    * Push APN
    */
@@ -45,7 +41,7 @@ async function accountUpdate(args){
    */
   _.set(data, '$set.updatedAt', new Date());
 
-  return await accountModel.updateOne({_id:id}, {$set: {'stops.route': [123]}});
+  return await accountModel.findOneAndUpdate({_id:id}, data);
 
 }
 

@@ -65,7 +65,6 @@ const options = {
     user:Object,
     createdAt: Date,
     expiresAt: Date,
-
   }));
 
 

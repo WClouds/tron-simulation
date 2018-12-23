@@ -3,15 +3,19 @@ const moment = require('moment');
 
 function handleDropoffPenaltyInput(data) {
   /* Get visits and fleet */
-  const {
+  let {
     visits,
     fleet,
     time: createdAt
   } = data;
 
-  const createUnix = moment(createdAt).unix()
+  if (!_.isNumber(createdAt)) {
+    createdAt = moment(createdAt).unix()
+  }
+
+  // const createUnix = moment(createdAt).unix()
   const now = moment().unix();
-  const subTime = now - createUnix
+  const subTime = now - createdAt
 
   /* Adjust for stops */
   _.forEach(visits, ({

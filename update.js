@@ -127,8 +127,6 @@ async function updateTron(route){
 }
 
 async function updateStop({id,body}){
-    
-  console.log('updateStop');
   /**
    * Find the account in question
    */
@@ -153,6 +151,8 @@ async function updateStop({id,body}){
   /* Initialize diff and status */
   let diff;
   let status;
+
+  console.log(body);
 
   /* Arrived Stop */
   if (body.status === 'arrived') {
@@ -334,8 +334,6 @@ async function updateStop({id,body}){
 }
 
 async function createStop({id}){
-
-  console.log('createStop');
   
   /**
    * Find the account in question
@@ -451,7 +449,7 @@ async function createStop({id}){
 
   /* update tron updated  */
   if (role) {
-    await this.redis.set(`stops:${role.scope}`, Date.now());
+    await redis.set(`stops:${role.scope}`, Date.now());
 
     /* this.actAsync('ns:tron,role:route,cmd:create', { region: role.scope }); */
   }
@@ -467,7 +465,262 @@ module.exports={
 }
 
 
+// async function constructFleet(time) {
 
+//   console.log('time===>', time);
+
+//   if (_.isNumber(time)) {
+//     if (time.toString().length === 10) {
+//       time = moment(time * 1000).toDate()
+//     } else {
+//       time = moment(time).toDate()
+//     }
+//   }
+
+//   let drivers = await accountModel.find();
+  
+//   drivers = _.filter(drivers, driver => {
+
+//     /* onCall filter */
+//     let onCall = false;
+//     _.forEach(driver.shifts, shift => {
+
+
+//       if (Moment(time).unix() >= Moment(shift.start).unix() && Moment(time).unix() < Moment(shift.end).unix()) {
+//         onCall = true;
+//         driver.onCall = true;
+//       }
+//     })
+//     return onCall || _.get(driver, 'stops.next');
+//   })
+
+//   /* Convert to fleet */
+//   const fleet = _.reduce(drivers, (f, d) => {
+
+//     /* init driver start time */
+//     d.start = time;
+//     console.log('start-=->', d.start)
+
+//     /* Use next stop as driver start location if has one */
+//     const next = _.get(d, 'stops.next');
+
+//     /* If there's next stop */
+//     if (next) {
+//       d.location = next.address.location;
+
+//       /* Use the finish time as the start time, */
+//       d.start = next.finishAt;
+
+//       /* if current time already larger than finish time */
+//       /* use the current time + 5 min if not arrived */
+//       /* use the current time + 2 min if already arrived */
+//       const late = Moment(time).add(next.arrivedAt ? 2 : 5, 'minute').toDate();
+
+//       /* Assign late time to new current time*/
+//       if (late > d.start) {
+//         d.start = late;
+//       }
+
+//       console.log('in next start==>', d.start)
+//     }
+
+//     /* Decide Type */
+//     /* Can take new orders if online, can only take en-route order if offline */
+//     const type = [d._id.toString()];
+
+//     if (d.onCall) {
+//       type.push('all');
+//     }
+
+//     /* Build the driver starting object */
+//     const fl = {
+//       type,
+//       start_location: {
+//         name: d.email,
+//         lat: _.get(d, 'location.coordinates[1]'),
+//         lng: _.get(d, 'location.coordinates[0]')
+//       },
+//       shift_start: Moment(d.start).unix()
+
+//     };
+
+//     console.log('moment start===>', d.start, Moment(d.start).unix())
+
+//     /* Assign */
+//     _.set(f, d._id, fl);
+
+//     return f;
+//   }, {});
+
+
+//   /* Throw Error if no driver */
+//   if (_.isEmpty(fleet)) {
+//     throw new Error('No couriers available at this time');
+//   }
+//   return fleet;
+// }
+
+// async function constructVisits(time) {
+//   const query = {
+
+//     /* Delivery must exists */
+//     'delivery._id': {
+//       $ne: null
+//     },
+
+//     /* Must not be delivered or failed */
+//     'delivery.status': {
+//       $nin: ['completed', 'failed']
+//     },
+
+//     /* Must not be delivered */
+//     'delivery.time': null,
+
+//     /* Must be confirmed */
+//     status: 'confirmed',
+
+//   };
+
+//   const orders = await orderModel.find(query);
+
+//   /* Convert to visists */
+//   const visits = _.reduce(orders, (v, o) => {
+
+//     /* Get restaurant prepare time, default 15 min */
+//     const prepare = _.get(o, 'restaurant.delivery.prepare') || 15;
+//     const pickup = {
+//       location: {
+//         name: `PICKUP#${o.passcode}`,
+//         lat:  _.get(o, 'restaurant.address.location.coordinates[1]'),
+//         lng:  _.get(o, 'restaurant.address.location.coordinates[0]')
+//       },
+//       start:    Moment(o.createdAt).add(prepare, 'minutes').unix(),
+//       duration: 4
+//     };
+
+//     /* Create the dropoff time */
+//     /* Init estimate time with min */
+//     /*
+//     let est = 45 - (region.restriction || 10);
+//     */
+
+//     /* init the estimated time of arrival as 45 minutes */
+//     let est = 45;
+
+//     /**
+//      * New customer get higher priority about 5 minutes
+//      */
+//     if (_.get(o, 'customer.orderCount') === 0) {
+//       est -= 5;
+//     }
+
+//     /* Make sure the EST is technically possible, otherwise routific will reject */
+//     /* Est is cannot be less than (prepare + 15) minutes */
+//     /* 15 = pickup duration (5) + dropoff duration (5) + en route (5) */
+//     est = _.max([ est, prepare + 15 ]);
+
+//     /* Create dropoff object */
+//     const dropoff = {
+//       location: {
+//         name: `DROPOFF#${o.passcode}`,
+//         lat:  _.get(o, 'delivery.address.location.coordinates[1]'),
+//         lng:  _.get(o, 'delivery.address.location.coordinates[0]')
+//       },
+//       end:      Moment(o.createdAt).add(est, 'minutes').unix(),
+//       duration: 2
+//     };
+
+//     /* Can be delivered by all driver as default */
+//     let type = 'all';
+
+//     /* If driver already assigned, lock to that driver */
+//     if (_.get(o, 'delivery.courier._id')) {
+
+//       /* set type to the driver id, so that only the current driver can deliver it */
+//       type = o.delivery.courier._id.toString();
+//     }
+
+
+//     /* Special casese */
+//     const status = _.get(o, 'delivery.status');
+
+//     /* Driver en route to pickup, */
+//     /* Restrict the type of this order to driver id */
+//     if (/pickup/.test(status)) {
+
+//       /* Throw error if no specific driver working on this order */
+//       if (type === 'all') {
+//         throw new Error(`Order #${o.passcode} is ${status} but has no driver`);
+//       }
+
+//       /* set pickup location to be same as dropoff location, and duration to be 1 */
+//       /* and name to be 'ignore' so it's easy to identify later */
+//       pickup.location = {
+//         lat:  dropoff.location.lat,
+//         lng:  dropoff.location.lng,
+//         name: 'ignore'
+//       };
+//       pickup.duration = 1;
+//       delete pickup.start;
+//     }
+
+//     /* Driver en route to dropoff, skip this order */
+//     if (/dropoff/.test(status)) {
+
+//       /* Throw error if no specific driver working on this order */
+//       if (type === 'all') {
+//         throw new Error(`Order #${o.passcode} is ${status} but has no driver`);
+//       }
+
+//       return v;
+//     }
+
+//     /* Add the visit object, skip if too much orders */
+//     if (o.delivery.courier || _.size(v) <= 80) {
+//       _.set(v, o._id, { load: 1, pickup, dropoff, type });
+//     }
+
+//     return v;
+
+//   }, {});
+
+
+//   /* Skip the routific call if no orders to deliver */
+//   if (_.isEmpty(visits)) {
+//     throw new Error('No more deliveries to plan');
+//   }
+
+//   return visits;
+
+// }
+
+
+// async function runTron(time) {
+//   const fleet = await constructFleet(time);
+//   const visits = await constructVisits(time);
+//   const options = {
+//     lateness_penalty:                 _.get(this.tronOptions, 'lateness_penalty') || 15,
+//     duration_coefficient:             _.get(this.tronOptions, 'duration_coefficient') || 1,
+//     map:                              _.get(this.tronOptions, 'map'), // Map data tag
+//     open_pickup_late_penalty:         _.get(this.tronOptions, 'open_pickup_late_penalty') || false,
+//     open_dropoff_multi_level_penalty: _.get(this.tronOptions, 'open_dropoff_multi_level_penalty') || false,
+//     dropoff_multi_level_penalty:      {
+
+//       /* default is 15minutes as a level */
+//       split_minute:        _.get(this.tronOptions, 'dropoff_multi_level_penalty.split_minute') || 15,
+
+//       /* penalty coefficient, default is 1 */
+//       penalty_coefficient: _.get(this.tronOptions, 'dropoff_multi_level_penalty.penalty_coefficient') || 1
+//     }
+//   };
+
+//   const {input, subTime} = handleDropoffPenaltyInput({ fleet, visits, options, time })
+
+//   const res = await tronClient(input)
+//   const fs = require('fs')
+//   fs.writeFileSync('tron_output.json', JSON.stringify(res))
+//   return handleDropoffPenaltyOutput(res.output, subTime)
+// }
 
 
 

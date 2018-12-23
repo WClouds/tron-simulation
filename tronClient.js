@@ -1,6 +1,6 @@
 const rp = require('request-promise');
 
-const TRON_HOSTNAME = 'http://tron-proxy-load-356607125.us-east-1.elb.amazonaws.com';
+const TRON_HOSTNAME = 'http://192.168.50.151:7000';
 
 async function tronClient({fleet, visits, options}) {
     const opts = {

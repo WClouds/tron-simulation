@@ -4,9 +4,10 @@ const Moment = require('moment-timezone');
 const data = require('./data');
 const redis = require('./redis');
 const { handleDropoffPenaltyInput, handleDropoffPenaltyOutput } = require('./util')
-const { accountModel, orderModel } = require('./connection');
+const { accountModel, orderModel,eventModel } = require('./connection');
 const tronClient = require('./tronClient');
 const { updateTron,updateStop,createStop } = require('./update');
+const { eventCreate } = require('./data/event');
 
 process.on('unhandledRejection', (reason, p) => {
   console.log('Unhandled Rejection at:', p, 'reason:', reason);
@@ -36,6 +37,8 @@ class Processor {
     
 
     await accountModel.deleteMany();
+    await eventModel.deleteMany();
+    await orderModel.deleteMany();
     await accountModel.insertMany(this.accounts)
 
 
@@ -44,6 +47,14 @@ class Processor {
   }
 
   async constructFleet(time) {
+
+    if (_.isNumber(time)) {
+      if (time.toString().length === 10) {
+        time = Moment(time * 1000).toDate()
+      } else {
+        time = Moment(time).toDate()
+      }
+    }
 
     let drivers = await accountModel.find();
     
@@ -81,7 +92,7 @@ class Processor {
         /* if current time already larger than finish time */
         /* use the current time + 5 min if not arrived */
         /* use the current time + 2 min if already arrived */
-        const late = Moment().add(next.arrivedAt ? 2 : 5, 'minute').toDate();
+        const late = Moment(time).add(next.arrivedAt ? 2 : 5, 'minute').toDate();
 
         /* Assign late time to new current time*/
         if (late > d.start) {
@@ -280,6 +291,15 @@ class Processor {
     const {input, subTime} = handleDropoffPenaltyInput({ fleet, visits, options, time })
   
     const res = await tronClient(input)
+    
+    eventCreate( {
+      data:  { tron: res, input: { visits, fleet, options } },
+      name:  'tron.output',
+
+    });
+    
+
+
     return handleDropoffPenaltyOutput(res.output, subTime)
   }
 
@@ -372,28 +392,28 @@ class Processor {
 
    await this.updateAllStops();
   
-    
   }
-
+  
   async run(){
-
+    
     const arr = _.cloneDeep(this.driverArr);
-
+    
     const { type, time , accountId } = await this.dealTronResult(_.cloneDeep(this.tronResult));
+  
     
     if(this.orders.length > 0){
-
+      
       const nextOrder = this.orders[0];
-
+      
       const nextCreatedAt = _.get(nextOrder,'createdAt');
-
+      
       arr.push({point:nextCreatedAt,type:'nextOrder'});
     }
     
     arr.push({point:time,type:'estimatedTime'});
-
+    
     const afterSort = _.sortBy(arr,'point');    
-
+    
     const item = _.head(afterSort);
 
     const itemType = _.get(item,'type');
@@ -401,6 +421,8 @@ class Processor {
     let tronResult ;
     // dirver start or end
     if(itemType === 'staff'){
+
+      console.log('staff');
 
       tronResult = await this.runTron(_.get(item,'point'));
 
@@ -432,6 +454,8 @@ class Processor {
   
     }else if(itemType === 'nextOrder'){
 
+      console.log('nextOrder');
+
       await this.insertOrder(this.orders[0])
 
       const createdAt = this.orders[0].createdAt;
@@ -451,6 +475,7 @@ class Processor {
 
   async updateStopData(type){
 
+    
     return{
       status:type,
       reason:'',
@@ -568,16 +593,15 @@ class Processor {
 
         const end = _.get(shift,'end');
       
-        arr.push({...account,time:start,flag:'start'});
-        arr.push({...account,time:end,flag:'end'});
+        arr.push({...account,point:Moment(start).unix(),flag:'start'});
+        arr.push({...account,point:Moment(end).unix(),flag:'end'});
       })
     })
 
-    return _.sortBy(arr,'time');
+    return _.sortBy(arr,'point');
   }
 
   async updateAllStops(){
-
 
     const result = await accountModel.find().lean();
 

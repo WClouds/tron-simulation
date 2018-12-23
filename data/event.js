@@ -1,16 +1,16 @@
 const { generate } = require('../utils/uid');
 const { eventModel } = require('../connection');
 
-async function eventCreate({data}){
+async function eventCreate(args){
 
   console.log('event');
 
   /* Only allow auto-generated timestamps */
-  data.createdAt = new Date();
-  data._id = generate('evt');
+  args.createdAt = new Date();
+  args._id = generate('evt');
 
   /* Insert the event */
-  return await eventModel.create(data);
+  return await eventModel.create(args);
 }
 
 module.exports={
