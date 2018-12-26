@@ -29,7 +29,8 @@ class Processor {
     this.accounts = accounts;
     this.orders = orders;
     this.tronOptions = _.get(region, 'tron.options');
-    this.statusArr = ['en-route-to-pickup','at-pickup','pickup-completed','en-route-to-dropoff','at-dropoff','completed'];
+    this.estStatusArr = ['en-route-to-pickup','at-pickup','pickup-completed','en-route-to-dropoff','at-dropoff','completed'];
+    this.currentDeliveryStatus = ['en-route-to-pickup','at-pickup','pickup-completed','en-route-to-dropoff','at-dropoff']
     this.type;
     this.accountId;
     this.driverArr = await this.dirverStartOrEnd();
@@ -37,9 +38,17 @@ class Processor {
     
 
     await accountModel.deleteMany();
+    
+    console.log('clear account success');
     await eventModel.deleteMany();
+
+    console.log('clear event success');
     await orderModel.deleteMany();
+
+    console.log('clear order success');
     await accountModel.insertMany(this.accounts)
+
+    console.log('insert origin data success');
 
 
     console.log('init data success');
@@ -48,30 +57,7 @@ class Processor {
 
   async constructFleet(time) {
 
-    if (_.isNumber(time)) {
-      if (time.toString().length === 10) {
-        time = Moment(time * 1000).toDate()
-      } else {
-        time = Moment(time).toDate()
-      }
-    }
-
-    let drivers = await accountModel.find();
-    
-    drivers = _.filter(drivers, driver => {
-
-      /* onCall filter */
-      let onCall = false;
-      _.forEach(driver.shifts, shift => {
-
-
-        if (Moment(time).unix() >= Moment(shift.start).unix() && Moment(time).unix() < Moment(shift.end).unix()) {
-          onCall = true;
-          driver.onCall = true;
-        }
-      })
-      return onCall || _.get(driver, 'stops.next');
-    })
+    const drivers = await this.getOnlineDrivers(time);
 
     /* Convert to fleet */
     const fleet = _.reduce(drivers, (f, d) => {
@@ -268,42 +254,91 @@ class Processor {
 
   }
 
+  async getOnlineDrivers(time){
+
+    if (_.isNumber(time)) {
+      if (time.toString().length === 10) {
+        time = Moment(time * 1000).toDate()
+      } else {
+        time = Moment(time).toDate()
+      }
+    }
+
+    let drivers = await accountModel.find();
+    
+    drivers = _.filter(drivers, driver => {
+
+      /* onCall filter */
+      let onCall = false;
+      _.forEach(driver.shifts, shift => {
+
+
+        if (Moment(time).unix() >= Moment(shift.start).unix() && Moment(time).unix() < Moment(shift.end).unix()) {
+          onCall = true;
+          driver.onCall = true;
+        }
+      })
+      return onCall || _.get(driver, 'stops.next');
+    })
+
+    return drivers;
+  }
+
 
   async runTron(time) {
-    const fleet = await this.constructFleet(time);
-    const visits = await this.constructVisits(time);
-    const options = {
-      lateness_penalty:                 _.get(this.tronOptions, 'lateness_penalty') || 15,
-      duration_coefficient:             _.get(this.tronOptions, 'duration_coefficient') || 1,
-      map:                              _.get(this.tronOptions, 'map'), // Map data tag
-      open_pickup_late_penalty:         _.get(this.tronOptions, 'open_pickup_late_penalty') || false,
-      open_dropoff_multi_level_penalty: _.get(this.tronOptions, 'open_dropoff_multi_level_penalty') || false,
-      dropoff_multi_level_penalty:      {
 
-        /* default is 15minutes as a level */
-        split_minute:        _.get(this.tronOptions, 'dropoff_multi_level_penalty.split_minute') || 15,
-
-        /* penalty coefficient, default is 1 */
-        penalty_coefficient: _.get(this.tronOptions, 'dropoff_multi_level_penalty.penalty_coefficient') || 1
+    try {
+      if (_.isNumber(time)) {
+        if (time.toString().length === 10) {
+          time = Moment(time * 1000).toDate()
+        } else {
+          time = Moment(time).toDate()
+        }
+      } else {
+        time = Moment(time).toDate()
       }
-    };
-
-    const {input, subTime} = handleDropoffPenaltyInput({ fleet, visits, options, time })
   
-    const res = await tronClient(input)
+      const fleet = await this.constructFleet(time);
+      const visits = await this.constructVisits(time);
+      const options = {
+        lateness_penalty:                 _.get(this.tronOptions, 'lateness_penalty') || 15,
+        duration_coefficient:             _.get(this.tronOptions, 'duration_coefficient') || 1,
+        map:                              _.get(this.tronOptions, 'map'), // Map data tag
+        open_pickup_late_penalty:         _.get(this.tronOptions, 'open_pickup_late_penalty') || false,
+        open_dropoff_multi_level_penalty: _.get(this.tronOptions, 'open_dropoff_multi_level_penalty') || false,
+        dropoff_multi_level_penalty:      {
+  
+          /* default is 15minutes as a level */
+          split_minute:        _.get(this.tronOptions, 'dropoff_multi_level_penalty.split_minute') || 15,
+  
+          /* penalty coefficient, default is 1 */
+          penalty_coefficient: _.get(this.tronOptions, 'dropoff_multi_level_penalty.penalty_coefficient') || 1
+        }
+      };
+  
+      const {input, subTime} = handleDropoffPenaltyInput({ fleet, visits, options, time })
     
-    eventCreate( {
-      data:  { tron: res, input: { visits, fleet, options } },
-      name:  'tron.output',
+      const res = await tronClient(input)
+      
+      eventCreate( {
+        data:  { tron: res, input: { visits, fleet, options } },
+        name:  'tron.output',
+  
+      });
+      
+  
+  
+      return handleDropoffPenaltyOutput(res.output, subTime)
+    } catch (err) {
+      console.log('run tron error====>', err)
+      return { output: err.message, status: 'error' }
+    }
 
-    });
-    
-
-
-    return handleDropoffPenaltyOutput(res.output, subTime)
   }
 
   async start(){
+
+    console.log('start....');
 
     await orderModel.deleteMany();
 
@@ -317,6 +352,8 @@ class Processor {
 
         await this.run();
         deliveringOrderLength = (await this.queryDeliveringOrders()).length;
+
+        runTron = this.orders.length > 0 || deliveringOrderLength > 0
 
         console.log('run done once');
       
@@ -368,10 +405,12 @@ class Processor {
 
   async firstRun(order){
 
+    // init order
     const createdAt = _.get(order,'createdAt');
 
-
     await this.insertOrder(order);
+
+    console.log('insert success');
 
     const tronResult = await this.runTron(createdAt);
 
@@ -388,29 +427,47 @@ class Processor {
     */
    await updateTron(_.cloneDeep(tronResult));
 
-   await this.dealTronResult(_.cloneDeep(tronResult));
+   await this.updateAllStops(createdAt);
 
-   await this.updateAllStops();
-  
+   console.log('first run success');
+
   }
   
   async run(){
     
-    const arr = _.cloneDeep(this.driverArr);
+    // get driver online/offline time list
+    let arr = _.cloneDeep(this.driverArr);
+
+    // TODO
+    // get driver scheudledAt time list
+    const scheduledArr = await accountModel.find({'stops.scheduledAt': {$exists: true, $ne: null}});
+
+    const mapScheduledArr = _.map(scheduledArr,(item)=>{
+
+      return {point:item.stops.scheduledAt,type:'driverScheduledAt',_id:item._id}
+    })
+
     
-    const { type, time , accountId } = await this.dealTronResult(_.cloneDeep(this.tronResult));
+    arr = arr.concat(mapScheduledArr);
+    // console.log('scheduledArr===>', scheduledArr);
+    // console.log('mapScheduledArr==>', mapScheduledArr)
+    // console.log('arr==>', arr)
+    
+    // get order status change estimate time
+    const estResult = await this.getEstOrder(_.cloneDeep(this.tronResult));
+
+    let { type, time , accountId, orderId } = estResult ? estResult : {}
+    arr.push({point:time,type:'estimatedTime'});
   
-    
-    if(this.orders.length > 0){
+    // get next created order time
+    if(this.orders.length >= 1){
       
       const nextOrder = this.orders[0];
       
       const nextCreatedAt = _.get(nextOrder,'createdAt');
       
-      arr.push({point:nextCreatedAt,type:'nextOrder'});
+      arr.push({point:Moment(nextCreatedAt).unix(),type:'nextOrder'});
     }
-    
-    arr.push({point:time,type:'estimatedTime'});
     
     const afterSort = _.sortBy(arr,'point');    
     
@@ -422,18 +479,40 @@ class Processor {
     // dirver start or end
     if(itemType === 'staff'){
 
-      console.log('staff');
+      console.log(`staff status : ${_.get(item,'flag')} id : ${_.get(item,'_id')}`);
 
       tronResult = await this.runTron(_.get(item,'point'));
 
       await updateTron(_.cloneDeep(tronResult));
 
-      await this.updateAllStops();
+      await this.updateAllStops(_.get(item,'point'));
 
       this.tronResult = tronResult;
-
     
       this.driverArr.shift();
+
+    } else if (itemType === 'driverScheduledAt') {
+
+      console.log('driver scheduledat==>', item)
+      // TODO
+      // updateStop
+      await updateStop({
+        id: item._id,
+        body:await this.updateStopData('completed'),
+        time: _.get(item,'point')
+      });
+      // runTron
+      tronResult = await this.runTron(_.get(item,'point'));
+      // updateTron
+      await updateTron(_.cloneDeep(tronResult));
+      // updateAllStops
+      await this.updateAllStops(_.get(item,'point'));
+
+      await accountModel.findOneAndUpdate({_id:item._id},{
+        $set: {
+          'stops.scheduledAt': null
+        }
+      })
 
     }else if(itemType === 'estimatedTime'){
 
@@ -442,7 +521,26 @@ class Processor {
       // pickup completed
       // dropoff arrived
       // dropoff completed
-      await updateStop({id: accountId, body:await this.updateStopData(type)});
+      await updateStop({
+        id: accountId,
+        body:await this.updateStopData(type),
+        time: _.get(item,'point')
+      });
+
+      // TODO
+      // if next status is at-dropoff
+      // save scheduledAt time as a time point to run Tron and set order.delivery.status to completed
+     
+
+      if (type === 'at-dropoff') {
+        const scheduledAt = (_.find(this.tronResult.solution[accountId],{'location_id':orderId,type:'dropoff'})).finish_time;
+        
+        await accountModel.findOneAndUpdate({_id:accountId},{
+          $set: {
+            'stops.scheduledAt': scheduledAt
+          }
+        })
+      }
 
       tronResult = await this.runTron(_.get(item,'point'));
 
@@ -450,15 +548,17 @@ class Processor {
 
       await updateTron(_.cloneDeep(tronResult));
 
-      await this.updateAllStops();
+      await this.updateAllStops(time);
+
+
   
     }else if(itemType === 'nextOrder'){
 
       console.log('nextOrder');
 
-      await this.insertOrder(this.orders[0])
-
       const createdAt = this.orders[0].createdAt;
+
+      await this.insertOrder(this.orders[0])
 
       tronResult = await this.runTron(createdAt);
 
@@ -466,7 +566,7 @@ class Processor {
 
       await updateTron(_.cloneDeep(tronResult))
    
-      await this.updateAllStops();
+      await this.updateAllStops(createdAt);
 
     }
 
@@ -475,23 +575,29 @@ class Processor {
 
   async updateStopData(type){
 
+    if(!_.includes(['at-pickup','at-dropoff','pickup-completed','completed'],type)){
+
+      throw new Error(`update stop need one of these status: "at-pickup","pickup-completed","at-dropoff","completed" , current status : ${type}`);
+    }
+
+    let status = type === 'at-pickup' || type === 'at-dropoff'?'arrived':'completed';
     
     return{
-      status:type,
+      status,
       reason:'',
       description:''
     }
   }
 
-  async dealTronResult(tronResult){
+  async getEstOrder(tronResult){
 
     const solution = _.get(tronResult,'solution');
-
 
     const arr = [];
 
     _.forEach(solution,(v,k)=>{
 
+      // first item is driver est, remove it
       v.shift();
 
       _.forEach(v,(item)=>{
@@ -500,57 +606,80 @@ class Processor {
       })
     });
 
-    //sort by arrived time
+    // group by orderId
     const afterGroupArr = _.groupBy(arr,'location_id');
+    const afterGroupOrderIds = Object.keys(afterGroupArr);
 
+    const deliveringOrders = await this.queryDeliveringOrders();
+    const filterdOrderIds = _.chain(deliveringOrders)
+      .filter((order) => {
+        return _.includes(afterGroupOrderIds, order._id) &&
+          _.includes(this.currentDeliveryStatus, order.delivery.status);
+      })
+      .map(order => (order._id))
+      .value()
 
-    const atferMap =await Promise.all(_.map(afterGroupArr,async (v,k)=>{
-
-      const itemOrder = await orderModel.findOne({_id:k});
-
-      const nextStatus =await this.dealDeliveryStatus(itemOrder.delivery.status)
-
-      let time;
-      switch (nextStatus) {
-        case 'en-route-to-pickup':
-        case 'at-pickup': {
-          time = (_.filter(v, ['type', 'pickup']))[0].arrival_time;
-          break;
-        }
-        case 'pickup-completed':
-          time = (_.filter(v, ['type', 'pickup']))[0].finish_time;break;
-        case 'en-route-to-dropoff':
-        case 'at-dropoff':
-          time = (_.filter(v, ['type', 'dropoff']))[0].arrival_time;break;
-        case 'completed':
-          time = (_.filter(v, ['type', 'dropoff']))[0].finish_time;break;
+    const filterDeliveringOrders = {}
+    _.forEach(filterdOrderIds, orderId => {
+      if (afterGroupArr[orderId]) {
+        filterDeliveringOrders[orderId] = afterGroupArr[orderId]
       }
+    })
+   
+      const atferMap =await Promise.all(_.map(filterDeliveringOrders,async (v,k)=>{
 
-      return {time,orderId:k,nextStatus,accountId:v[0].accountId}      
-    }))
+        const itemOrder = await orderModel.findOne({_id:k});
+
+  
+        const nextStatus =await this.dealDeliveryStatus(itemOrder.delivery.status);
+
+        console.log('next Status===>', nextStatus)
+  
+        let time;
+        switch (nextStatus) {
+          // case 'en-route-to-pickup':
+          case 'at-pickup': {
+            time = (_.filter(v, ['type', 'pickup']))[0].arrival_time;
+            break;
+          }
+          case 'pickup-completed':
+            time = (_.filter(v, ['type', 'pickup']))[0].finish_time;break;
+          // case 'en-route-to-dropoff':
+          case 'at-dropoff':
+            time = (_.filter(v, ['type', 'dropoff']))[0].arrival_time;break;
+          case 'completed':
+            time = (_.filter(v, ['type', 'dropoff']))[0].finish_time;break;
+          default:
+            console.log('error next status====>', nextStatus);
+            break;
+        }
+  
+        return {time,orderId:k,nextStatus,accountId:v[0].accountId}  
+      }))
+  
+  
+      _.sortBy(atferMap,'time');
+  
+      const top = _.head(atferMap);
 
 
-    _.sortBy(atferMap,'time');
-
-    const top = _.head(atferMap);
-
-
-    return {
-      accountId:top.accountId,
-      type:top.nextStatus,
-      time:top.time
-    }
-
+      if (top) {
+        return {
+          accountId:top.accountId,
+          type:top.nextStatus,
+          time:top.time,
+          orderId: top.orderId
+        }
+      }
+      return null;
     
   }
 
   dealDeliveryStatus(status){
 
-  
-    const index = _.indexOf(this.statusArr,status);
+    const index = _.indexOf(this.estStatusArr,status);
 
-
-    return this.statusArr[index+1];
+    return this.estStatusArr[index+1];
 
   }
 
@@ -558,30 +687,6 @@ class Processor {
   async dirverStartOrEnd(){
 
     const arr = [];
-
-    // _.forEach(this.accounts,(account)=>{
-
-    //   const shifts = _.get(account,'shifts');
-
-    //   _.forEach(shifts,(shift)=>{
-
-    //     const start = _.get(shift,'start');
-
-    //     const end = _.get(shift,'end');
-      
-    //     if(Moment(start).unix()>=(Moment(time).unix())){
-
-    //       account.point = start;
-    //       arr.push(account);
-    //       return false;
-    //     }else if(Moment(end).unix()>=(Moment(time).unix())){
-
-    //       account.point = end;
-    //       arr.push(account);
-    //       return false;
-    //     }
-    //   })
-    // })
 
     _.forEach(this.accounts,(account)=>{
 
@@ -598,14 +703,16 @@ class Processor {
       })
     })
 
+
     return _.sortBy(arr,'point');
   }
 
-  async updateAllStops(){
+  async updateAllStops(time){
 
-    const result = await accountModel.find().lean();
+    // only update online drivers because tron will filter with onCall and next !== null
+    const drivers = await this.getOnlineDrivers(time);
 
-    await Promise.all(_.map(result,async (item)=>{
+    await Promise.all(_.map(drivers,async (item)=>{
 
       if(!item.stops.next&&item.stops.route.length>0){
 

@@ -12,9 +12,9 @@ const options = {
 
 mongoose.connect(url, options);
 
-const start = new Date('2018-12-13T23:00:00+08:00');
-const end = new Date('2018-12-14T23:00:00+08:00');
-const regionId = mongoose.Types.ObjectId('56280f780d288d07f1dfffe1');
+const start = new Date('2018-12-16T23:00:00+08:00');
+const end = new Date('2018-12-17T23:00:00+08:00');
+const regionId = 'reg_ByRQvy7Mm';
 
 async function getOrders() {
   try {

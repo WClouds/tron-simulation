@@ -9,11 +9,16 @@ function handleDropoffPenaltyInput(data) {
     time: createdAt
   } = data;
 
-  if (!_.isNumber(createdAt)) {
+  if (_.isNumber(createdAt)) {
+    if (createdAt.toString().length === 10) {
+      createdAt = moment(createdAt * 1000).unix()
+    } else {
+      createdAt = moment(createdAt).unix()
+    }
+  } else {
     createdAt = moment(createdAt).unix()
   }
 
-  // const createUnix = moment(createdAt).unix()
   const now = moment().unix();
   const subTime = now - createdAt
 

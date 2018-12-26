@@ -1,6 +1,6 @@
 const rp = require('request-promise');
 
-const TRON_HOSTNAME = 'http://192.168.50.151:7000';
+const TRON_HOSTNAME = 'http://tron.ricepo.com/';
 
 async function tronClient({fleet, visits, options}) {
     const opts = {

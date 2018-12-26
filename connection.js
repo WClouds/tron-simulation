@@ -9,6 +9,11 @@ const options = {
   const url = 'mongodb://localhost:27017';
   
   const localMongoConn = mongoose.createConnection(url, options);
+
+  localMongoConn.on('connected',()=>{
+
+    console.log('local mongodb connection success');
+  });
   
   const accountModel = localMongoConn.model('accounts', new Schema({
     _id: Schema.Types.Mixed,
