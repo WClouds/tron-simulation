@@ -391,7 +391,7 @@ async function createStop({id}){
   ) {
 
     /* Run tron to refresh the route for this case */
-    await createRoute({ region: order.region._id });
+    // await createRoute({ region: order.region._id });
 
     throw new Error('Someone else took this order, Tron is looking for new orders, please wait.');
   }

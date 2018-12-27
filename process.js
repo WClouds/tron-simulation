@@ -321,7 +321,7 @@ class Processor {
       const res = await tronClient(input)
       
       eventCreate( {
-        data:  { tron: res, input: { visits, fleet, options } },
+        data:  { tron: res, input: { visits, fleet, options }, runAt: time },
         name:  'tron.output',
   
       });
@@ -338,7 +338,7 @@ class Processor {
 
   async start(){
 
-    console.log('start....');
+    console.log('===============start=================');
 
     await orderModel.deleteMany();
 
@@ -449,9 +449,6 @@ class Processor {
 
     
     arr = arr.concat(mapScheduledArr);
-    // console.log('scheduledArr===>', scheduledArr);
-    // console.log('mapScheduledArr==>', mapScheduledArr)
-    // console.log('arr==>', arr)
     
     // get order status change estimate time
     const estResult = await this.getEstOrder(_.cloneDeep(this.tronResult));
@@ -476,6 +473,7 @@ class Processor {
     const itemType = _.get(item,'type');
 
     let tronResult ;
+    console.log('item===>', item.type, item.point, Moment(item.point * 1000).toDate())
     // dirver start or end
     if(itemType === 'staff'){
 
@@ -501,11 +499,15 @@ class Processor {
         body:await this.updateStopData('completed'),
         time: _.get(item,'point')
       });
+
+      // create stop
+      await this.updateAllStops(_.get(item,'point'));
+
       // runTron
       tronResult = await this.runTron(_.get(item,'point'));
       // updateTron
       await updateTron(_.cloneDeep(tronResult));
-      // updateAllStops
+
       await this.updateAllStops(_.get(item,'point'));
 
       await accountModel.findOneAndUpdate({_id:item._id},{
@@ -517,15 +519,19 @@ class Processor {
     }else if(itemType === 'estimatedTime'){
 
       console.log('estimatedTime');
+
+      const body = await this.updateStopData(type)
       // pickup arrived
       // pickup completed
       // dropoff arrived
       // dropoff completed
       await updateStop({
         id: accountId,
-        body:await this.updateStopData(type),
+        body,
         time: _.get(item,'point')
       });
+
+      const nextStatus = body.status;
 
       // TODO
       // if next status is at-dropoff
@@ -542,6 +548,16 @@ class Processor {
         })
       }
 
+      /*
+       * if next status is completed, it means driver next is null
+       * so we need assign new order first
+       * then run tron
+      */
+      if (nextStatus === 'completed') {
+        console.log('in completed====>');
+        await this.updateAllStops(time);
+      }
+
       tronResult = await this.runTron(_.get(item,'point'));
 
       this.tronResult = tronResult;
@@ -550,8 +566,6 @@ class Processor {
 
       await this.updateAllStops(time);
 
-
-  
     }else if(itemType === 'nextOrder'){
 
       console.log('nextOrder');
