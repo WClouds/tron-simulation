@@ -164,6 +164,8 @@ async function updateStop({id, body, time}){
   let diff;
   let status;
 
+  const currentCoordinates = next.address.location.coordinates;
+
   /* Arrived Stop */
   if (body.status === 'arrived') {
 
@@ -282,7 +284,7 @@ async function updateStop({id, body, time}){
     diff
   };
 
- 
+
   /* Create event */
   await eventCreate(
     {
@@ -323,7 +325,7 @@ async function updateStop({id, body, time}){
   const updated = await accountUpdate(
     {
       id,
-      data: { $set: { stops } }
+      data: { $set: { stops, 'location.coordinates': currentCoordinates } }
     }
   );
 

@@ -427,7 +427,7 @@ class Processor {
     */
    await updateTron(_.cloneDeep(tronResult));
 
-   await this.updateAllStops(createdAt);
+   await this.createAllStops(createdAt);
 
    console.log('first run success');
 
@@ -463,7 +463,11 @@ class Processor {
       
       const nextCreatedAt = _.get(nextOrder,'createdAt');
       
-      arr.push({point:Moment(nextCreatedAt).unix(),type:'nextOrder'});
+      arr.push({
+        point:Moment(nextCreatedAt).unix(),
+        type:'nextOrder',
+        orderId: nextOrder._id
+      });
     }
     
     const afterSort = _.sortBy(arr,'point');    
@@ -483,7 +487,7 @@ class Processor {
 
       await updateTron(_.cloneDeep(tronResult));
 
-      await this.updateAllStops(_.get(item,'point'));
+      await this.createAllStops(_.get(item,'point'));
 
       this.tronResult = tronResult;
     
@@ -496,19 +500,17 @@ class Processor {
       // updateStop
       await updateStop({
         id: item._id,
-        body:await this.updateStopData('completed'),
+        body:await this.getUpdateStopData('completed'),
         time: _.get(item,'point')
       });
 
-      // create stop
-      await this.updateAllStops(_.get(item,'point'));
 
       // runTron
       tronResult = await this.runTron(_.get(item,'point'));
       // updateTron
       await updateTron(_.cloneDeep(tronResult));
 
-      await this.updateAllStops(_.get(item,'point'));
+      await this.createAllStops(_.get(item,'point'));
 
       await accountModel.findOneAndUpdate({_id:item._id},{
         $set: {
@@ -520,7 +522,7 @@ class Processor {
 
       console.log('estimatedTime');
 
-      const body = await this.updateStopData(type)
+      const body = await this.getUpdateStopData(type)
       // pickup arrived
       // pickup completed
       // dropoff arrived
@@ -533,42 +535,39 @@ class Processor {
 
       const nextStatus = body.status;
 
-      // TODO
-      // if next status is at-dropoff
-      // save scheduledAt time as a time point to run Tron and set order.delivery.status to completed
-     
-
-      if (type === 'at-dropoff') {
-        const scheduledAt = (_.find(this.tronResult.solution[accountId],{'location_id':orderId,type:'dropoff'})).finish_time;
-        
-        await accountModel.findOneAndUpdate({_id:accountId},{
-          $set: {
-            'stops.scheduledAt': scheduledAt
-          }
-        })
-      }
-
-      /*
-       * if next status is completed, it means driver next is null
-       * so we need assign new order first
-       * then run tron
-      */
       if (nextStatus === 'completed') {
-        console.log('in completed====>');
-        await this.updateAllStops(time);
+
+        /*
+        * if next status is completed, it means driver next is null
+        * so we need assign new order first
+        * then run tron
+        */
+        await this.createAllStops(time);
+      } else {
+
+        // if next status is at-dropoff
+        // save scheduledAt time as a time point to run Tron and set order.delivery.status to completed
+        if (type === 'at-dropoff') {
+          const scheduledAt = (_.find(this.tronResult.solution[accountId],{'location_id':orderId,type:'dropoff'})).finish_time;
+
+          await accountModel.findOneAndUpdate({_id:accountId},{
+            $set: {
+              'stops.scheduledAt': scheduledAt
+            }
+          })
+        }
+
+        tronResult = await this.runTron(_.get(item,'point'));
+        this.tronResult = tronResult;
+        await updateTron(_.cloneDeep(tronResult));
+        await this.createAllStops(time);
       }
 
-      tronResult = await this.runTron(_.get(item,'point'));
 
-      this.tronResult = tronResult;
-
-      await updateTron(_.cloneDeep(tronResult));
-
-      await this.updateAllStops(time);
 
     }else if(itemType === 'nextOrder'){
 
-      console.log('nextOrder');
+      console.log('nextOrder', item.orderId);
 
       const createdAt = this.orders[0].createdAt;
 
@@ -579,15 +578,15 @@ class Processor {
       this.tronResult = tronResult;
 
       await updateTron(_.cloneDeep(tronResult))
-   
-      await this.updateAllStops(createdAt);
+
+      await this.createAllStops(createdAt);
 
     }
 
 
   }
 
-  async updateStopData(type){
+  async getUpdateStopData(type){
 
     if(!_.includes(['at-pickup','at-dropoff','pickup-completed','completed'],type)){
 
@@ -640,14 +639,13 @@ class Processor {
       }
     })
    
-      const atferMap =await Promise.all(_.map(filterDeliveringOrders,async (v,k)=>{
+      let atferMap =await Promise.all(_.map(filterDeliveringOrders,async (v,k)=>{
 
         const itemOrder = await orderModel.findOne({_id:k});
 
   
         const nextStatus =await this.dealDeliveryStatus(itemOrder.delivery.status);
 
-        console.log('next Status===>', nextStatus)
   
         let time;
         switch (nextStatus) {
@@ -670,14 +668,14 @@ class Processor {
   
         return {time,orderId:k,nextStatus,accountId:v[0].accountId}  
       }))
-  
-  
-      _.sortBy(atferMap,'time');
+
+      atferMap = _.sortBy(atferMap,'time');
   
       const top = _.head(atferMap);
 
 
       if (top) {
+        console.log('next Status===>', top.orderId, top.nextStatus, Moment(top.time * 1000).toDate())
         return {
           accountId:top.accountId,
           type:top.nextStatus,
@@ -721,7 +719,7 @@ class Processor {
     return _.sortBy(arr,'point');
   }
 
-  async updateAllStops(time){
+  async createAllStops(time){
 
     // only update online drivers because tron will filter with onCall and next !== null
     const drivers = await this.getOnlineDrivers(time);
