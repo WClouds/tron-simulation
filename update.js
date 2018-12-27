@@ -285,19 +285,24 @@ async function updateStop({id, body, time}){
     diff
   };
 
+  const scope = {
+    order:      next.order._id,
+    account:    id,
+    restaurant: _.get(next, 'order.restaurant._id')
+  }
 
   /* Create event */
   await eventCreate(
     {
       data,
       name:  status === 'completed' ? 'order.delivered' : `order.delivery.${status}`,
-      scope: {
-        order:      next.order._id,
-        account:    id,
-        restaurant: _.get(next, 'order.restaurant._id')
-      }
+      scope
     }
   );
+
+  if (status === 'completed') {
+    await delivered({ data, scope, currentTime: time })
+  }
 
   /* Notify customer if driver has arrived at dropoff location */
 //   if (status === 'at-dropoff') {
@@ -526,7 +531,7 @@ async function eventSendOrder({ id, type, message, update, silent$ }) {
 async function delivered(args) {
 
   /* Get required fileds from args*/
-  const { scope, data } = args;
+  const { scope, data, currentTime } = args;
 
 
   /**
@@ -538,7 +543,7 @@ async function delivered(args) {
   /**
    * Compute the delivery time
    */
-  let time = moment().diff(order.createdAt, 'minutes');
+  let time = moment(currentTime).diff(order.createdAt, 'minutes');
 
   /* If delay is present directly set it under order */
   if (_.get(data, 'delay')) {
