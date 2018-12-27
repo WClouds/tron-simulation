@@ -1,5 +1,6 @@
 const _            = require('lodash');
 const Moment       = require('moment-timezone');
+const moment       = require('moment');
 const redis = require('./redis');
 
 const { accountModel, orderModel,regionModel } = require('./connection');
@@ -471,8 +472,111 @@ async function createStop({id}){
 }
 
 
+/**
+ * Send order
+ */
+async function eventSendOrder({ id, type, message, update, silent$ }) {
+
+  /* Get transitions from options */
+  const transitions = require('./transitions.json');
+  const data = update || { };
+
+
+  /* If this is a transition-able state */
+  if (typeof transitions[type] !== 'undefined') {
+
+    /* Find the order in question */
+    const order = await orderFind({ id });
+
+    /* Do nothing if not found */
+    if (!order) { return null; }
+
+    console.log(`${order.status} --> ${type}`);
+
+    /* Get transitions type */
+    const valid = _.includes(transitions[order.status], type);
+
+    /* Refuse to transition if the new state is unreachable */
+    if (!valid && !silent$) {
+      throw new Error('bad-transition', {
+        from: order.status,
+        to:   type,
+        id:   order._id
+      });
+    }
+
+    /* Update order status and message */
+    if (valid) {
+      _.set(data, '$set.status', type);
+
+      /* Save message */
+      if (message) { _.set(data, '$set.message', message); }
+    }
+
+  }
+
+  /* Execute the update */
+  return await orderUpdate({ id, data });
+
+}
+
+/**
+ * Delivered event
+ */
+async function delivered(args) {
+
+  /* Get required fileds from args*/
+  const { scope, data } = args;
+
+
+  /**
+   * Find the order in question
+   */
+  let order = await orderFind({ id: scope.order });
+
+
+  /**
+   * Compute the delivery time
+   */
+  let time = moment().diff(order.createdAt, 'minutes');
+
+  /* If delay is present directly set it under order */
+  if (_.get(data, 'delay')) {
+    time = data.delay;
+  }
+
+  /* Get Translation */
+  const message = 'delivered'
+
+  /**
+   * Transition the order to the delivered state, and set the delivery time
+   */
+  order = await eventSendOrder({
+    id:     scope.order,
+    type:   'delivered',
+    update: {
+      $set: {
+
+        /* backward compatibility */
+        'destination.time': time,
+
+        'delivery.time':    time,
+        message
+      }
+    }
+  });
+
+}
+
+
+
+
+
+
+
 module.exports={
     updateTron,
     updateStop,
-    createStop
+    createStop,
+    delivered
 }

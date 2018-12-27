@@ -1,0 +1,23 @@
+{
+    "pending": [
+        "created",
+        "declined",
+        "cancelled"
+    ],
+    "created": [
+        "sent",
+        "confirmed",
+        "cancelled"
+    ],
+    "sent": [
+        "confirmed",
+        "cancelled"
+    ],
+    "confirmed": [
+        "cancelled"
+    ],
+    "cancelled": [
+        "confirmed"
+    ],
+    "declined": []
+}
