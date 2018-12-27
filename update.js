@@ -178,6 +178,10 @@ async function updateStop({id, body, time}){
     /* Update the stop arrivedAt time & Calculate diff with estimate time */
     next.arrivedAt = time;
     diff = Moment(time).diff(next.arriveAt, 'minute');
+    // console.log(`arrived===>type: ${next.type}, time: ${time}, arriveAt: ${next.arriveAt}, diff: ${diff}`);
+    // if (diff < -100) {
+    //   process.exit(1)
+    // }
     status = `at-${next.type}`;
   }
 
