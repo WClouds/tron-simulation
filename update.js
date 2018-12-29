@@ -308,27 +308,8 @@ async function updateStop({id, body, time}){
     await delivered({ data, scope, currentTime: time })
   }
 
-  /* Notify customer if driver has arrived at dropoff location */
-//   if (status === 'at-dropoff') {
-
-//     /* Get detailed message */
-//     const lang = _.get(next, 'order.customer.language') || 'en-US';
-//     const trans = this.get('order.options.message');
-//     const message = _.get(trans, `arrivedDropoff.${lang}`);
-
-//     /**
-//      * Push the notification to the customer
-//      */
-//     await this.actAsync('ns:order,cmd:push', {
-//       id:       next.order._id,
-//       message,
-//       sms:     true
-//     });
-//   }
-
-
   /* Update estimate time for subsequent stops */
-  AdjStops(stops, diff);
+  AdjStops(stops, diff, time);
 
 
   /* Save new stops to driver */

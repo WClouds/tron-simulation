@@ -5,7 +5,7 @@ const Moment       = require('moment');
 /**
  * Adjust stops
  */
-function adjust(stops, delay = 0) {
+function adjust(stops, delay = 0, now) {
 
   /* get next route and startAt */
   const { next, route, startAt } = stops;
@@ -23,7 +23,7 @@ function adjust(stops, delay = 0) {
    * 2. current stop's actual finished time
    * 3. or right now
    */
-  stops.startAt = Moment(_.get(next, 'finishedAt') || _.get(next, 'finishAt')).toDate();
+  stops.startAt = Moment(_.get(next, 'finishedAt') || _.get(next, 'finishAt') || now).toDate();
 
   /*
    * If the original assumed start time is set,
