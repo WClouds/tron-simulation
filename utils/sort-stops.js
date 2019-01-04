@@ -16,6 +16,7 @@ function sort(stops) {
 
   /* save first stops arriveAt and restaurant id */
   let previousArrive = first.arriveAt;
+  let previousFinish = first.finishAt;
   const restId = first.order.restaurant._id;
 
   /* Get collection of all stops from same restaurant pickup and sort them as per order.createdAt */
@@ -38,11 +39,13 @@ function sort(stops) {
   /* Compute the arriveAt and finishAt time for each stop */
   for (const s of commonStops) {
     s.finishAt = _.max([
-      addMin(previousArrive, 2),
+      previousFinish,
+      // addMin(previousArrive, 2),
       addMin(s.order.createdAt, _.get(s, 'order.restaurant.delivery.prepare') || 15)
     ]);
-    s.arriveAt = addMin(s.finishAt, -2);
-    previousArrive = s.finishAt;
+    // s.arriveAt = addMin(s.finishAt, -2);
+    previousArrive = s.arriveAt;
+    previousFinish = s.finishAt;
   }
 
   /* Save the new order stops in final stops */

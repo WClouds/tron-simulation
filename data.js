@@ -14,7 +14,21 @@ mongoose.connect(url, options);
 
 const start = new Date('2018-12-16T23:00:00+08:00');
 const end = new Date('2018-12-17T23:00:00+08:00');
-const regionId = 'reg_ByRQvy7Mm';
+
+// chicago
+// const regionId = mongoose.Types.ObjectId('5643797e0d288d07f1e0033a');
+
+// bloomington
+const regionId = mongoose.Types.ObjectId('55982fe88f6dfb1987d5dda5');
+
+// tempe
+// const regionId = mongoose.Types.ObjectId('5664f1e20d288d07f1e005dc');
+
+// lansing
+// const regionId = mongoose.Types.ObjectId('57195cfb9ad9fe1100ebbd7b');
+
+// gainsvile
+// const regionId = 'reg_ByRQvy7Mm';
 
 async function getOrders() {
   try {

@@ -17,6 +17,7 @@ const options = {
   
   const accountModel = localMongoConn.model('accounts', new Schema({
     _id: Schema.Types.Mixed,
+    unskilled: Boolean,
     email: String,
     type: String,
     phone: String,
