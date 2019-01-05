@@ -3,18 +3,19 @@ const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
 const options = {
-    dbName: 'test',
+    dbName: 'tron-simulation',
     useNewUrlParser: true
   }
-  const url = 'mongodb://localhost:27017';
-  
+
+  const url = process.env.SIMULATE_DATA_MONGO_URI
+
   const localMongoConn = mongoose.createConnection(url, options);
 
   localMongoConn.on('connected',()=>{
 
     console.log('local mongodb connection success');
   });
-  
+
   const accountModel = localMongoConn.model('accounts', new Schema({
     _id: Schema.Types.Mixed,
     unskilled: Boolean,

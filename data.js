@@ -3,7 +3,7 @@ const _ = require('lodash')
 
 const Schema = mongoose.Schema;
 
-const url = process.env.MONGO_URI;
+const url = process.env.DATASOURCE_MONGO_URI;
 
 const options = {
   dbName: 'live',
