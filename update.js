@@ -424,15 +424,6 @@ async function createStop({id}){
     }
   );
 
-  /**
-   *  Add scheduledAt for driver stop,
-   * as at-dropoff time point to run updateStop action
-   */
-  if (stops.next.type === 'dropoff') {
-    stops.scheduledAt = stops.next.arrival_time
-    console.log('in create stop en-route-to-dropoff', id, stops.next.location_id, stops.scheduledAt);
-  }
-
   
   /* And Create event for the new order */
   await eventCreate( {

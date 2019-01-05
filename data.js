@@ -19,7 +19,10 @@ const end = new Date('2018-12-17T23:00:00+08:00');
 // const regionId = mongoose.Types.ObjectId('5643797e0d288d07f1e0033a');
 
 // bloomington
-const regionId = mongoose.Types.ObjectId('55982fe88f6dfb1987d5dda5');
+// const regionId = mongoose.Types.ObjectId('55982fe88f6dfb1987d5dda5');
+
+// allston
+const regionId = mongoose.Types.ObjectId('56280f780d288d07f1dfffe1');
 
 // tempe
 // const regionId = mongoose.Types.ObjectId('5664f1e20d288d07f1e005dc');
