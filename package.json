@@ -3,7 +3,7 @@
     "bson-objectid": "^1.2.4",
     "ioredis": "^4.3.0",
     "lodash": "^4.17.13",
-    "moment-timezone": "^0.5.23",
+    "moment-timezone": "^0.5.35",
     "mongoose": "^5.3.16",
     "request": "^2.88.0",
     "request-promise": "^4.2.2",
